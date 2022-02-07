@@ -3,9 +3,10 @@
 """Datasets Manager"""
 from geneva.data import clevr_dataset
 from geneva.data import codraw_dataset
-
+from geneva.data import crim_dataset
 
 DATASETS = {
     'codraw': codraw_dataset.CoDrawDataset,
     'iclevr': clevr_dataset.ICLEVERDataset,
+    'crim': crim_dataset.CRIMDataset,
 }

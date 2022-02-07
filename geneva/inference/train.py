@@ -7,6 +7,19 @@ import glob
 import torch
 from torch.utils.data import DataLoader
 
+# # import sys
+# # sys.path.append(os.path.join(os.path.dirname(__file__), "..", "data"))
+# # sys.path.append(os.path.join(os.path.dirname(__file__), "..", ""))
+# # print(sys.path)
+
+# # from pathlib import Path
+# # import sys
+# # sys.path.append(str(Path(__file__).parent.parent))
+# # print(sys.path)
+
+# import geneva
+# import geneva.data
+
 from geneva.data.datasets import DATASETS
 from geneva.evaluation.evaluate import Evaluator
 from geneva.utils.config import keys, parse_config
@@ -14,6 +27,7 @@ from geneva.utils.visualize import VisdomPlotter
 from geneva.models.models import MODELS
 from geneva.data import codraw_dataset
 from geneva.data import clevr_dataset
+from geneva.data import crim_dataset
 
 
 class Trainer():
@@ -35,8 +49,11 @@ class Trainer():
 
         self.dataset = DATASETS[cfg.dataset](
             path=keys[cfg.dataset], cfg=cfg, img_size=cfg.img_size)
+
+        # import pdb; pdb.set_trace()
         self.dataloader = DataLoader(self.dataset,
                                      batch_size=cfg.batch_size,
+                                    #  batch_size=2,
                                      shuffle=shuffle,
                                      num_workers=cfg.num_workers,
                                      pin_memory=True,
@@ -46,6 +63,8 @@ class Trainer():
             self.dataloader.collate_fn = codraw_dataset.collate_data
         elif cfg.dataset == 'iclevr':
             self.dataloader.collate_fn = clevr_dataset.collate_data
+        elif cfg.dataset == 'crim':
+            self.dataloader.collate_fn = crim_dataset.collate_data
 
         self.visualizer = VisdomPlotter(env_name=cfg.exp_name, server=cfg.vis_server)
         self.logger = None
@@ -54,6 +73,7 @@ class Trainer():
 
     def train(self):
         iteration_counter = 0
+        # import pdb; pdb.set_trace()
         for epoch in range(self.cfg.epochs):
             if cfg.dataset == 'codraw':
                 self.dataset.shuffle()
@@ -61,10 +81,10 @@ class Trainer():
             for batch in self.dataloader:
                 if iteration_counter >= 0 and iteration_counter % self.cfg.save_rate == 0:
                     torch.cuda.empty_cache()
-                    evaluator = Evaluator.factory(self.cfg, self.visualizer,
-                                                  self.logger)
-                    evaluator.evaluate(iteration_counter)
-                    del evaluator
+                    # evaluator = Evaluator.factory(self.cfg, self.visualizer,
+                    #                               self.logger)
+                    # evaluator.evaluate(iteration_counter)
+                    # del evaluator
 
                 iteration_counter += 1
 

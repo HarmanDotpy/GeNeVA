@@ -112,109 +112,124 @@ class RecurrentGAN():
             updated every sequence
         """
         batch_size = len(batch['image'])
-        max_seq_len = batch['image'].size(1)
+        # max_seq_len = batch['image'].size(1)
 
-        prev_image = torch.FloatTensor(batch['background'])
-        prev_image = prev_image.unsqueeze(0) \
-            .repeat(batch_size, 1, 1, 1)
+        #NSIM
+        max_seq_len = batch['image'].size(1) - 1 # [image1, image2] jence length will be 2, but it's just one step in our case, i.e we don't have anything like a background before the first image
+        assert max_seq_len == 1
+
+        # prev_image = torch.FloatTensor(batch['background'])
+        # prev_image = prev_image.unsqueeze(0) \
+        #     .repeat(batch_size, 1, 1, 1)
+
+        # NSIM
+        # the 0th image is the first image, and in total we have only 2 imagesfor each data point
+        prev_image = batch['image'][:, 0]
         disc_prev_image = prev_image
+
 
         # Initial inputs for the RNN set to zeros
         hidden = torch.zeros(1, batch_size, self.cfg.hidden_dim)
-        prev_objects = torch.zeros(batch_size, self.cfg.num_objects)
+        # prev_objects = torch.zeros(batch_size, self.cfg.num_objects)
+        prev_objects = batch['objects'][:, 0]
 
         teller_images = []
         drawer_images = []
         added_entities = []
 
-        for t in range(max_seq_len):
-            image = batch['image'][:, t]
-            turns_word_embedding = batch['turn_word_embedding'][:, t]
-            turns_lengths = batch['turn_lengths'][:, t]
-            objects = batch['objects'][:, t]
-            seq_ended = t > (batch['dialog_length'] - 1)
+        # for t in range(max_seq_len):
+        # for t in range(1):
 
-            image_feature_map, image_vec, object_detections = \
-                self.image_encoder(prev_image)
-            _, current_image_feat, _ = self.image_encoder(image)
+        t=1 # CRIM DATA
+        image = batch['image'][:, t]
+        turns_word_embedding = batch['turn_word_embedding'][:, t]
+        turns_lengths = batch['turn_lengths'][:, t]
+        objects = batch['objects'][:, t]
+        seq_ended = t > (batch['dialog_length'] - 1) # for CRIM dataset it will always be false, as t=1 and batch['dialog_length']=tensor with all values=2
 
-            turn_embedding = self.sentence_encoder(turns_word_embedding,
-                                                   turns_lengths)
-            rnn_condition, current_image_feat = \
-                self.condition_encoder(turn_embedding,
-                                       image_vec,
-                                       current_image_feat)
+        image_feature_map, image_vec, object_detections = \
+            self.image_encoder(prev_image)
+        _, current_image_feat, _ = self.image_encoder(image)
 
-            rnn_condition = rnn_condition.unsqueeze(0)
-            output, hidden = self.rnn(rnn_condition,
-                                      hidden)
+        turn_embedding = self.sentence_encoder(turns_word_embedding,
+                                                turns_lengths)
+        rnn_condition, current_image_feat = \
+            self.condition_encoder(turn_embedding,
+                                    image_vec,
+                                    current_image_feat)
 
-            output = output.squeeze(0)
-            output = self.layer_norm(output)
+        rnn_condition = rnn_condition.unsqueeze(0)
+        output, hidden = self.rnn(rnn_condition,
+                                    hidden)
 
-            fake_image, mu, logvar, sigma = self._forward_generator(batch_size,
-                                                                    output.detach(),
-                                                                    image_feature_map)
+        output = output.squeeze(0)
+        output = self.layer_norm(output)
 
-            visualizer.track_sigma(sigma)
+        fake_image, mu, logvar, sigma = self._forward_generator(batch_size,
+                                                                output.detach(),
+                                                                image_feature_map)
 
-            hamming = objects - prev_objects
-            hamming = torch.clamp(hamming, min=0)
+        visualizer.track_sigma(sigma)
+        hamming = objects - prev_objects
+        # for the crim case, the following line will for hamming to be a one hot vector, 1 at the place where the object has undergone change
+        hamming = torch.clamp(hamming, min=0) # min 0 clips the negatives to 0. note that objects have the information of all the objects of the last scene
 
-            d_loss, d_real, d_fake, aux_loss, discriminator_gradient = \
-                self._optimize_discriminator(image,
-                                             fake_image.detach(),
-                                             disc_prev_image,
-                                             output,
-                                             seq_ended,
-                                             hamming,
-                                             self.cfg.gp_reg,
-                                             self.cfg.aux_reg)
+        d_loss, d_real, d_fake, aux_loss, discriminator_gradient = \
+            self._optimize_discriminator(image,
+                                            fake_image.detach(),
+                                            disc_prev_image,
+                                            output,
+                                            seq_ended,
+                                            hamming,
+                                            self.cfg.gp_reg,
+                                            self.cfg.aux_reg) # aus_reg is 5 always in geneva, gp_reg=1
 
-            g_loss, generator_gradient = \
-                self._optimize_generator(fake_image,
-                                         disc_prev_image.detach(),
-                                         output.detach(),
-                                         objects,
-                                         self.cfg.aux_reg,
-                                         seq_ended,
-                                         mu,
-                                         logvar)
+        g_loss, generator_gradient = \
+            self._optimize_generator(fake_image,
+                                        disc_prev_image.detach(),
+                                        output.detach(),
+                                        objects,
+                                        self.cfg.aux_reg,
+                                        seq_ended,
+                                        mu,
+                                        logvar)
 
-            if self.cfg.teacher_forcing:
-                prev_image = image
-            else:
-                prev_image = fake_image
+        if self.cfg.teacher_forcing:
+            prev_image = image
+        else:
+            prev_image = fake_image
 
-            disc_prev_image = image
-            prev_objects = objects
+        disc_prev_image = image
+        prev_objects = objects
 
-            if (t + 1) % 2 == 0:
-                prev_image = prev_image.detach()
+        if (t + 1) % 2 == 0:
+            prev_image = prev_image.detach()
 
-            rnn_grads = []
-            gru_grads = []
-            condition_encoder_grads = []
-            img_encoder_grads = []
+        rnn_grads = []
+        gru_grads = []
+        condition_encoder_grads = []
+        img_encoder_grads = []
 
-            if t == max_seq_len - 1:
-                rnn_gradient, gru_gradient, condition_gradient,\
-                    img_encoder_gradient = self._optimize_rnn()
+        # if t == max_seq_len - 1:
+        rnn_gradient, gru_gradient, condition_gradient,\
+            img_encoder_gradient = self._optimize_rnn()
 
-                rnn_grads.append(rnn_gradient.data.cpu().numpy())
-                gru_grads.append(gru_gradient.data.cpu().numpy())
-                condition_encoder_grads.append(condition_gradient.data.cpu().numpy())
+        rnn_grads.append(rnn_gradient.data.cpu().numpy())
+        gru_grads.append(gru_gradient.data.cpu().numpy())
+        condition_encoder_grads.append(condition_gradient.data.cpu().numpy())
 
-                if self.use_image_encoder:
-                    img_encoder_grads.append(img_encoder_gradient.data.cpu().numpy())
+        if self.use_image_encoder:
+            img_encoder_grads.append(img_encoder_gradient.data.cpu().numpy())
 
-                visualizer.track(d_real, d_fake)
+        visualizer.track(d_real, d_fake)
 
-            hamming = hamming.data.cpu().numpy()[0]
-            teller_images.extend(image[:4].data.numpy())
-            drawer_images.extend(fake_image[:4].data.cpu().numpy())
-            entities = str.join(',', list(batch['entities'][hamming > 0]))
-            added_entities.append(entities)
+
+        hamming = hamming.data.cpu().numpy()[0]
+        teller_images.extend(image[:4].data.numpy())
+        drawer_images.extend(fake_image[:4].data.cpu().numpy())
+        # in the case of CRIM the following will have 1 entity, i.e. the after verion of the entity undergoing change.
+        entities = str.join(',', list(batch['entities'][hamming > 0]))
+        added_entities.append(entities)
 
         if iteration % self.cfg.vis_rate == 0:
             visualizer.histogram()
